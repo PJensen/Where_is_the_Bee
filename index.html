@@ -1,0 +1,964 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8" />
+	<title>Find the Bee</title>
+	<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+	<link rel="icon" type="image/svg+xml" href="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><defs><radialGradient id='g' cx='32' cy='32' r='30' gradientUnits='userSpaceOnUse'><stop offset='0' stop-color='%23fff9c4'/><stop offset='1' stop-color='%23fbc02d'/></radialGradient></defs><circle cx='32' cy='32' r='30' fill='url(%23g)' stroke='%23212121' stroke-width='3'/><ellipse cx='26' cy='28' rx='8' ry='10' fill='%23bbdefb' opacity='0.9'/><ellipse cx='38' cy='28' rx='8' ry='10' fill='%23bbdefb' opacity='0.9'/><ellipse cx='32' cy='36' rx='16' ry='14' fill='%23ffeb3b' stroke='%23212121' stroke-width='3'/><path d='M20 34h24M20 38h24M20 42h24' stroke='%23212121' stroke-width='3' stroke-linecap='round'/><path d='M28 18c1.5-4 6.5-4 8 0' stroke='%23212121' stroke-width='3' fill='none' stroke-linecap='round'/><circle cx='36' cy='21' r='2' fill='%23212121'/></svg>">
+	<style>
+		html, body {
+			margin: 0;
+			padding: 0;
+			height: 100%;
+			width: 100%;
+			overflow: hidden;
+			background: #0a101d;
+			font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+			touch-action: manipulation;
+		}
+
+		.game-container {
+			position: relative;
+			width: 100vw;
+			height: 100vh;
+			display: flex;
+			align-items: center;
+			justify-content: center;
+			background:
+				radial-gradient(120% 90% at 20% 10%, rgba(255,182,193,0.18), transparent 48%),
+				radial-gradient(110% 80% at 80% 15%, rgba(135,206,250,0.16), transparent 50%),
+				radial-gradient(100% 70% at 50% 100%, rgba(144,238,144,0.12), transparent 55%),
+				linear-gradient(160deg, #0c0f1a 0%, #0b1624 45%, #0a101d 100%);
+			color: #fff;
+			padding: 0;
+		}
+
+		.image-wrapper {
+			position: relative;
+			width: 100vw;
+			height: 100vh;
+			overflow: hidden;
+			background: transparent;
+		}
+
+		/* Miss particles (grass clippings) */
+		.particle {
+			position: absolute;
+			width: 8px;
+			height: 18px;
+			border-radius: 999px;
+			pointer-events: none;
+			transform-origin: center top;
+			box-shadow: 0 0 4px rgba(0,0,0,0.5);
+		}
+
+		/* Floral fireworks (win) */
+		.flower-petal {
+			position: absolute;
+			width: 26px;
+			height: 40px;
+			border-radius: 50% 50% 50% 50%;
+			pointer-events: none;
+			transform-origin: 50% 80%;
+			box-shadow: 0 0 10px rgba(0,0,0,0.45);
+			z-index: 5; /* keep floral bursts above falling tiles */
+		}
+
+		/* Bee found marker */
+		.found-marker {
+			position: absolute;
+			width: 140px;
+			height: 140px;
+			margin-left: -70px;
+			margin-top: -70px;
+			border-radius: 50%;
+			pointer-events: none;
+			border: 5px solid #f6ff6c;
+			box-shadow: 0 0 25px rgba(246, 255, 108, 0.75);
+			animation: pulse-marker 0.9s ease-out forwards;
+			z-index: 6;
+		}
+
+		/* Finger trail particles */
+		.trail-particle {
+			position: absolute;
+			width: 9px;
+			height: 26px;
+			margin-left: -4.5px;
+			margin-top: -13px;
+			border-radius: 3px 3px 12px 12px;
+			pointer-events: none;
+			box-shadow: 0 2px 6px rgba(0,0,0,0.28);
+			opacity: 0.95;
+			background: linear-gradient(180deg, var(--top-color), var(--base-color));
+			clip-path: polygon(50% 0, 78% 20%, 62% 100%, 38% 100%, 22% 20%);
+			transform-origin: 50% 100%;
+			animation: trail-fade 1200ms ease-out forwards;
+			z-index: 6;
+		}
+
+		@keyframes trail-fade {
+			0% { transform: translate3d(0,0,0) rotate(var(--rot)) scale(1); opacity: 0.9; }
+			45% { transform: translate3d(calc(var(--dx) * 0.55), calc(var(--dy) * 0.55), 0) rotate(var(--rot)) scale(1.05); opacity: 0.85; }
+			100% { transform: translate3d(var(--dx), var(--dy), 0) rotate(var(--rot)) scale(0.65); opacity: 0; }
+		}
+
+		@keyframes pulse-marker {
+			0% { transform: scale(0.3); opacity: 0; }
+			35% { transform: scale(1.05); opacity: 1; }
+			100% { transform: scale(1.3); opacity: 0; }
+		}
+
+		/* Canvas stack for shatter effect */
+		.canvas-stack {
+			position: relative;
+			width: 100%;
+			height: 100%;
+		}
+
+		.shatter-piece {
+			position: absolute;
+			background-repeat: no-repeat;
+			background-size: 100% 100%;
+			will-change: transform, opacity;
+			pointer-events: none;
+			z-index: 2;
+		}
+
+		#scene-image {
+			display: block;
+			width: 100%;
+			height: 100%;
+			object-fit: contain;
+			touch-action: none;
+			user-select: none;
+		}
+
+		.tap-circle {
+			position: absolute;
+			width: 80px;
+			height: 80px;
+			margin-left: -40px;
+			margin-top: -40px;
+			border-radius: 50%;
+			pointer-events: none;
+			border: 4px solid #ffeb3b;
+			box-shadow: 0 0 20px rgba(0,0,0,0.7);
+			animation-duration: 0.6s;
+			animation-fill-mode: forwards;
+		}
+
+		.tap-circle.miss {
+			border-color: #ff5252;
+			animation-name: fizzle;
+		}
+
+		.tap-circle.hit {
+			border-color: #69f0ae;
+			animation-name: hooray;
+		}
+
+		@keyframes fizzle {
+			0% { transform: scale(0.2); opacity: 0.9; }
+			100% { transform: scale(1.4); opacity: 0; }
+		}
+
+		@keyframes hooray {
+			0% { transform: scale(0.4); opacity: 1; }
+			40% { transform: scale(1.3); opacity: 1; }
+			100% { transform: scale(1.6); opacity: 0; }
+		}
+
+		.overlay-text {
+			position: absolute;
+			top: 12px;
+			left: 50%;
+			transform: translateX(-50%);
+			padding: 6px 14px;
+			border-radius: 999px;
+			background: rgba(0,0,0,0.6);
+			font-size: 18px;
+			letter-spacing: 0.03em;
+			pointer-events: none;
+			opacity: 0;
+			transition: opacity 0.25s ease-out, transform 0.25s ease-out;
+			white-space: nowrap;
+		}
+
+		.overlay-text.visible {
+			opacity: 1;
+			transform: translateX(-50%) translateY(4px);
+		}
+
+		.overlay-text.good {
+			color: #c8ffb0;
+		}
+
+		.overlay-text.bad {
+			color: #ffb0b0;
+		}
+
+		.level-indicator {
+			position: absolute;
+			bottom: 18px;
+			left: 50%;
+			transform: translateX(-50%);
+			padding: 4px 10px;
+			border-radius: 999px;
+			background: rgba(0,0,0,0.6);
+			font-size: 14px;
+			color: #eee;
+		}
+
+		@media (max-width: 540px) {
+			.game-container {
+				justify-content: center;
+				align-items: center;
+				padding: 0;
+			}
+
+			.image-wrapper {
+				width: 100vw;
+				height: 100vh;
+				margin-top: 0;
+			}
+
+		}
+
+		.vignette {
+			position: absolute;
+			inset: 0;
+			pointer-events: none;
+			background: radial-gradient(ellipse at center, rgba(0,0,0,0) 55%, rgba(0,0,0,0.55) 100%);
+			opacity: 0;
+			transition: opacity 0.4s ease-out;
+			z-index: 6;
+		}
+
+		.vignette.visible {
+			opacity: 1;
+		}
+
+		.hint-spark {
+			position: absolute;
+			width: 80px;
+			height: 80px;
+			margin-left: -40px;
+			margin-top: -40px;
+			border-radius: 50%;
+			pointer-events: none;
+			background: radial-gradient(circle, rgba(255,255,255,0.9) 0, rgba(255,255,255,0.3) 35%, transparent 60%);
+			box-shadow: 0 0 18px rgba(255,255,255,0.5);
+			animation: hint-pulse 1s ease-out forwards;
+			z-index: 7;
+		}
+
+		@keyframes hint-pulse {
+			0% { transform: scale(0.4); opacity: 0; }
+			60% { transform: scale(1.05); opacity: 0.95; }
+			100% { transform: scale(1.25); opacity: 0; }
+		}
+
+		.click-layer {
+			position: absolute;
+			inset: 0;
+			cursor: pointer;
+		}
+	</style>
+</head>
+<body>
+	<div class="game-container">
+		<div class="image-wrapper">
+			<div class="canvas-stack">
+				<img id="scene-image" src="" alt="Find the bee" />
+				<img id="next-scene-image" src="" alt="Next level" style="position:absolute; inset:0; width:100%; height:100%; opacity:0; pointer-events:none; object-fit: contain;" />
+				<div class="vignette" id="vignette"></div>
+			</div>
+			<div class="click-layer" id="click-layer"></div>
+			<div class="overlay-text" id="overlay-text"></div>
+			<div class="level-indicator" id="level-indicator"></div>
+		</div>
+	</div>
+
+	<script>
+		const BEE_RADIUS_PX = 80;
+		const LEVEL_IMAGE_PREFIX = 'images/';
+		const PROGRESS_KEY = 'find-the-bee-level-index';
+		const HINT_IDLE_MS = 4500;
+		const HINT_MAX = 2;
+
+		let beeLocations = {};
+		let levelKeys = [];
+		let currentLevelIndex = 0;
+		let activeTouchId = null;
+		let touchResolved = false;
+		let lastTrailEmit = 0;
+		let mouseDown = false;
+		let mouseResolved = false;
+		const lastPointer = { xScreen: 0, yScreen: 0, xImage: 0, yImage: 0 };
+		let hintUses = 0;
+		let lastInteraction = performance.now();
+		let isTransitioning = false;
+
+		const img = document.getElementById('scene-image');
+		const nextImg = document.getElementById('next-scene-image');
+		const clickLayer = document.getElementById('click-layer');
+		const overlayText = document.getElementById('overlay-text');
+		const levelIndicator = document.getElementById('level-indicator');
+		const vignette = document.getElementById('vignette');
+		const imageWrapper = document.querySelector('.image-wrapper');
+		// Offscreen canvas for color sampling
+		const sampleCanvas = document.createElement('canvas');
+		const sampleCtx = sampleCanvas.getContext('2d');
+
+		function getRenderedImageBox() {
+			const rect = img.getBoundingClientRect();
+			const naturalRatio = img.naturalWidth / img.naturalHeight || 1;
+			const containerRatio = rect.width / rect.height || 1;
+			let width, height;
+			if (containerRatio > naturalRatio) {
+				height = rect.height;
+				width = height * naturalRatio;
+			} else {
+				width = rect.width;
+				height = width / naturalRatio;
+			}
+			const left = rect.left + (rect.width - width) / 2;
+			const top = rect.top + (rect.height - height) / 2;
+			return { left, top, width, height };
+		}
+
+		fetch('bee-locations.json')
+			.then(r => r.json())
+			.then(data => {
+				beeLocations = data;
+				levelKeys = Object.keys(beeLocations).sort((a, b) => {
+					const ma = a.match(/(\d+)/);
+					const mb = b.match(/(\d+)/);
+					if (ma && mb) {
+						const na = parseInt(ma[1], 10);
+						const nb = parseInt(mb[1], 10);
+						if (na !== nb) return na - nb;
+					}
+					return a.localeCompare(b);
+				});
+				if (levelKeys.length === 0) {
+					showOverlay('No levels found', true);
+					return;
+				}
+				const stored = parseInt(localStorage.getItem(PROGRESS_KEY) || '0', 10);
+				if (!Number.isNaN(stored) && stored >= 0 && stored < levelKeys.length) {
+					currentLevelIndex = stored;
+				} else {
+					currentLevelIndex = 0;
+				}
+				loadCurrentLevel();
+			})
+			.catch(err => {
+				console.error('Error loading bee-locations.json', err);
+				showOverlay('Could not load levels', true);
+			});
+
+		function loadCurrentLevel() {
+			const levelKey = levelKeys[currentLevelIndex];
+			// Hide any preloaded "next" image overlay before showing current
+			nextImg.style.opacity = '0';
+			vignette.classList.remove('visible');
+			hintUses = 0;
+			lastInteraction = performance.now();
+			img.src = LEVEL_IMAGE_PREFIX + levelKey;
+			img.onload = () => {
+				// Draw into offscreen canvas for color sampling
+				sampleCanvas.width = img.naturalWidth;
+				sampleCanvas.height = img.naturalHeight;
+				sampleCtx.clearRect(0, 0, sampleCanvas.width, sampleCanvas.height);
+				sampleCtx.drawImage(img, 0, 0, sampleCanvas.width, sampleCanvas.height);
+				updateLevelIndicator();
+				clickLayer.style.pointerEvents = '';
+				isTransitioning = false;
+			};
+		}
+
+		function preloadNextLevelImage() {
+			const nextIndex = (currentLevelIndex + 1) % levelKeys.length;
+			const nextKey = levelKeys[nextIndex];
+			nextImg.src = LEVEL_IMAGE_PREFIX + nextKey;
+		}
+
+		function updateLevelIndicator() {
+			// Display a friendly 1-based level number regardless of file naming (supports level-0)
+			levelIndicator.textContent = 'Level ' + (currentLevelIndex + 1);
+		}
+
+		function showOverlay(text, isBad) {
+			overlayText.textContent = text;
+			overlayText.classList.remove('good', 'bad', 'visible');
+			overlayText.classList.add(isBad ? 'bad' : 'good');
+			void overlayText.offsetWidth;
+			overlayText.classList.add('visible');
+			setTimeout(() => {
+				overlayText.classList.remove('visible');
+			}, 800);
+		}
+
+		function saveProgress() {
+			try {
+				localStorage.setItem(PROGRESS_KEY, String(currentLevelIndex));
+			} catch (e) {
+				console.warn('Could not save progress', e);
+			}
+		}
+
+		function createTapCircle(x, y, hit) {
+			const circle = document.createElement('div');
+			circle.className = 'tap-circle ' + (hit ? 'hit' : 'miss');
+			circle.style.left = x + 'px';
+			circle.style.top = y + 'px';
+			document.querySelector('.image-wrapper').appendChild(circle);
+			setTimeout(() => circle.remove(), 650);
+		}
+
+		function showFoundMarker(xImage, yImage) {
+			const wrapperRect = imageWrapper.getBoundingClientRect();
+			const render = getRenderedImageBox();
+			// Position relative to the rendered image inside the wrapper
+			const xOnImage = (xImage / img.naturalWidth) * render.width;
+			const yOnImage = (yImage / img.naturalHeight) * render.height;
+			const xLocal = (render.left - wrapperRect.left) + xOnImage;
+			const yLocal = (render.top - wrapperRect.top) + yOnImage;
+
+			const marker = document.createElement('div');
+			marker.className = 'found-marker';
+			marker.style.left = xLocal + 'px';
+			marker.style.top = yLocal + 'px';
+			imageWrapper.appendChild(marker);
+			setTimeout(() => marker.remove(), 950);
+		}
+
+		function showVignette() {
+			vignette.classList.add('visible');
+			setTimeout(() => vignette.classList.remove('visible'), 900);
+		}
+
+		function sampleColorsAround(xImage, yImage, count = 6, radius = 10) {
+			const colors = [];
+			for (let i = 0; i < count; i++) {
+				const angle = Math.random() * Math.PI * 2;
+				const r = Math.random() * radius;
+				const sx = Math.min(Math.max(0, Math.round(xImage + Math.cos(angle) * r)), sampleCanvas.width - 1);
+				const sy = Math.min(Math.max(0, Math.round(yImage + Math.sin(angle) * r)), sampleCanvas.height - 1);
+				const [rC, gC, bC, aC] = sampleCtx.getImageData(sx, sy, 1, 1).data;
+				if (aC > 10) {
+					colors.push(`rgb(${rC}, ${gC}, ${bC})`);
+				}
+			}
+			if (!colors.length) colors.push('rgba(255, 255, 255, 0.85)');
+			return colors;
+		}
+
+		function spawnHintSparkle() {
+			const levelKey = levelKeys[currentLevelIndex];
+			const bee = beeLocations[levelKey];
+			if (!bee) return;
+			const wrapperRect = imageWrapper.getBoundingClientRect();
+			const render = getRenderedImageBox();
+			const xOnImage = (bee.x / img.naturalWidth) * render.width;
+			const yOnImage = (bee.y / img.naturalHeight) * render.height;
+			const xLocal = (render.left - wrapperRect.left) + xOnImage;
+			const yLocal = (render.top - wrapperRect.top) + yOnImage;
+			const spark = document.createElement('div');
+			spark.className = 'hint-spark';
+			spark.style.left = xLocal + 'px';
+			spark.style.top = yLocal + 'px';
+			imageWrapper.appendChild(spark);
+			setTimeout(() => spark.remove(), 1100);
+		}
+
+		function maybeShowHint(now) {
+			if (hintUses >= HINT_MAX) return;
+			if (isTransitioning) return;
+			if (mouseDown || activeTouchId !== null) return;
+			if (now - lastInteraction < HINT_IDLE_MS) return;
+			spawnHintSparkle();
+			hintUses += 1;
+			lastInteraction = now;
+		}
+
+		function spawnGrassClippings(xOnScreen, yOnScreen, xImage, yImage) {
+			const wrapperRect = imageWrapper.getBoundingClientRect();
+			const originX = wrapperRect.left + xOnScreen;
+			const originY = wrapperRect.top + yOnScreen;
+
+			// Sample multiple nearby pixels to get a set of greens
+			const colors = [];
+			const sampleRadius = 8;
+			for (let i = 0; i < 10; i++) {
+				const angle = Math.random() * Math.PI * 2;
+				const r = Math.random() * sampleRadius;
+				const sx = Math.min(Math.max(0, Math.round(xImage + Math.cos(angle) * r)), sampleCanvas.width - 1);
+				const sy = Math.min(Math.max(0, Math.round(yImage + Math.sin(angle) * r)), sampleCanvas.height - 1);
+				const data = sampleCtx.getImageData(sx, sy, 1, 1).data;
+				const [rC, gC, bC, aC] = data;
+				if (aC > 20) {
+					colors.push(`rgb(${rC}, ${gC}, ${bC})`);
+				}
+			}
+			if (colors.length === 0) {
+				colors.push('rgb(120, 180, 120)');
+			}
+
+			const pieceCount = 22;
+			const pieces = [];
+			for (let i = 0; i < pieceCount; i++) {
+				const p = document.createElement('div');
+				p.className = 'particle';
+				p.style.backgroundColor = colors[i % colors.length];
+				p.style.left = (originX - wrapperRect.left - 4 + (Math.random() * 12 - 6)) + 'px';
+				p.style.top = (originY - wrapperRect.top - 4 + (Math.random() * 6 - 3)) + 'px';
+				imageWrapper.appendChild(p);
+				pieces.push({ el: p, vx: (Math.random() * 80 - 40), vy: -(Math.random() * 80 + 40), rot: Math.random() * 40 - 20 });
+			}
+
+			const gravity = 480;
+			const airFriction = 0.9;
+			const life = 2000; // total lifetime in ms
+			const start = performance.now();
+
+			function animate(now) {
+				const tNorm = Math.min((now - start) / life, 1);
+				pieces.forEach(p => {
+					const el = p.el;
+					p.vy += gravity * 0.016;
+					p.vx *= airFriction;
+					const y = parseFloat(el.style.top) + p.vy * 0.016;
+					const x = parseFloat(el.style.left) + p.vx * 0.016;
+					el.style.top = y + 'px';
+					el.style.left = x + 'px';
+					el.style.transform = `rotate(${p.rot * (1 + tNorm)}deg)`;
+					el.style.opacity = String(1 - tNorm * 0.9);
+				});
+
+				if (tNorm < 1) {
+					requestAnimationFrame(animate);
+				} else {
+					pieces.forEach(p => p.el.remove());
+				}
+			}
+
+			requestAnimationFrame(animate);
+		}
+
+		function spawnTouchTrail(xOnScreen, yOnScreen, xImage, yImage) {
+			const now = performance.now();
+			if (now - lastTrailEmit < 18) return; // denser emission for more particles
+			lastTrailEmit = now;
+
+			const colors = sampleColorsAround(xImage, yImage, 9, Math.max(60, img.naturalWidth * 0.04));
+			// Place trail at the true pointer position within the wrapper coordinate space
+			const baseLeft = xOnScreen;
+			const baseTop = yOnScreen;
+			const count = 2 + (Math.random() < 0.35 ? 1 : 0); // emit 2–3 blades per tick
+			for (let i = 0; i < count; i++) {
+				const particle = document.createElement('div');
+				particle.className = 'trail-particle';
+				particle.style.left = baseLeft + 'px';
+				particle.style.top = baseTop + 'px';
+				const baseColor = colors[Math.floor(Math.random() * colors.length)];
+				const match = baseColor.match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/);
+				if (match) {
+					const jitter = () => Math.floor((Math.random() - 0.5) * 60);
+					const nr = Math.max(0, Math.min(255, parseInt(match[1], 10) + jitter()));
+					const ng = Math.max(0, Math.min(255, parseInt(match[2], 10) + jitter()));
+					const nb = Math.max(0, Math.min(255, parseInt(match[3], 10) + jitter()));
+					const greenBoost = 12;
+					const nrG = nr;
+					const ngG = Math.min(255, ng + greenBoost);
+					const nbG = nb;
+					const topR = Math.min(255, nrG + 18);
+					const topG = Math.min(255, ngG + 26);
+					const topB = Math.min(255, nbG + 10);
+					particle.style.setProperty('--base-color', `rgb(${nrG}, ${ngG}, ${nbG})`);
+					particle.style.setProperty('--top-color', `rgb(${topR}, ${topG}, ${topB})`);
+				} else {
+					particle.style.setProperty('--base-color', baseColor);
+					particle.style.setProperty('--top-color', baseColor);
+				}
+				const dx = (Math.random() - 0.5) * 64;
+				const dy = (Math.random() - 0.05) * 90;
+				const rot = (Math.random() * 28 - 14) + 'deg';
+				particle.style.setProperty('--dx', `${dx}px`);
+				particle.style.setProperty('--dy', `${dy}px`);
+				particle.style.setProperty('--rot', rot);
+				imageWrapper.appendChild(particle);
+				setTimeout(() => particle.remove(), 1700);
+			}
+		}
+
+		function playFloralFireworks(xImage, yImage) {
+			const render = getRenderedImageBox();
+			const wrapperRect = imageWrapper.getBoundingClientRect();
+			const xOnScreen = (xImage / img.naturalWidth) * render.width;
+			const yOnScreen = (yImage / img.naturalHeight) * render.height;
+			const originX = render.left + xOnScreen;
+			const originY = render.top + yOnScreen;
+
+			// Sample top dominant colors across the whole image for an immersive palette
+			const paletteCanvas = document.createElement('canvas');
+			paletteCanvas.width = paletteCanvas.height = 48;
+			const paletteCtx = paletteCanvas.getContext('2d', { willReadFrequently: true });
+			paletteCtx.drawImage(sampleCanvas, 0, 0, paletteCanvas.width, paletteCanvas.height);
+			const data = paletteCtx.getImageData(0, 0, paletteCanvas.width, paletteCanvas.height).data;
+			const buckets = new Map();
+			for (let i = 0; i < data.length; i += 4) {
+				const aC = data[i + 3];
+				if (aC < 40) continue;
+				const rQ = data[i] >> 3;  // quantize to reduce unique buckets
+				const gQ = data[i + 1] >> 3;
+				const bQ = data[i + 2] >> 3;
+				const key = `${rQ},${gQ},${bQ}`;
+				buckets.set(key, (buckets.get(key) || 0) + 1);
+			}
+			const dominant = [...buckets.entries()]
+				.sort((a, b) => b[1] - a[1])
+				.slice(0, 10)
+				.map(([key]) => {
+					const [rq, gq, bq] = key.split(',').map(Number);
+					return `rgb(${(rq << 3) + 4}, ${(gq << 3) + 4}, ${(bq << 3) + 4})`;
+				});
+			const colors = dominant.length ? dominant : ['#ffdfef', '#ffe29f', '#a3e4ff', '#b7f0a1'];
+
+			const petals = [];
+			const ringRadius = 58; // start tighter to the found-it ring
+			const travel = 160; // how far beyond the ring to drift
+			const count = 32;
+			for (let i = 0; i < count; i++) {
+				const angle = (Math.PI * 2 * i / count) + Math.random() * 0.4;
+				const baseRadius = ringRadius + Math.random() * 8 - 4;
+				const petal = document.createElement('div');
+				petal.className = 'flower-petal';
+				petal.style.background = colors[i % colors.length];
+				imageWrapper.appendChild(petal);
+				petals.push({
+					el: petal,
+					angle,
+					baseRadius,
+					flutter: Math.random() * 10 + 8,
+					spin: (Math.random() * 0.6 - 0.3)
+				});
+			}
+
+			const life = 1600; // linger a bit longer for extra celebration
+			const start = performance.now();
+
+			function animate(now) {
+				const tNorm = Math.min((now - start) / life, 1);
+				const easeOut = 1 - Math.pow(1 - tNorm, 2);
+
+				petals.forEach(p => {
+					const travelDist = p.baseRadius + travel * easeOut;
+					const flutter = Math.sin((start + now) * 0.012 + p.angle) * p.flutter * (1 - tNorm);
+					const x = originX - wrapperRect.left + Math.cos(p.angle) * travelDist + Math.cos(p.angle + Math.PI / 2) * flutter;
+					const y = originY - wrapperRect.top + Math.sin(p.angle) * travelDist * 0.85 + Math.sin(p.angle + Math.PI / 2) * flutter - 6 * easeOut;
+					p.el.style.left = x + 'px';
+					p.el.style.top = y + 'px';
+					p.el.style.transform = `rotate(${p.angle + p.spin * easeOut}rad)`;
+					const fade = Math.max(0, 1 - Math.pow(tNorm, 1.1)); // smooth fade all the way to zero
+					p.el.style.opacity = String(fade);
+				});
+
+				if (tNorm < 1) {
+					requestAnimationFrame(animate);
+				} else {
+					petals.forEach(p => p.el.remove());
+				}
+			}
+
+			requestAnimationFrame(animate);
+		}
+
+		function playShatterToNextLevel() {
+			const render = getRenderedImageBox();
+			if (isTransitioning) return;
+			isTransitioning = true;
+			// Ensure next level image is ready and visible underneath
+			preloadNextLevelImage();
+			nextImg.style.opacity = '1';
+			const baseDuration = 1000; // ms
+
+			// Sample a few pixels from the current image to derive accent colors
+			const accentColors = [];
+			const samplePoints = [
+				{ x: img.naturalWidth * 0.25, y: img.naturalHeight * 0.25 },
+				{ x: img.naturalWidth * 0.75, y: img.naturalHeight * 0.25 },
+				{ x: img.naturalWidth * 0.25, y: img.naturalHeight * 0.75 },
+				{ x: img.naturalWidth * 0.75, y: img.naturalHeight * 0.75 },
+				{ x: img.naturalWidth * 0.5, y: img.naturalHeight * 0.5 }
+			];
+			for (const p of samplePoints) {
+				const sx = Math.min(Math.max(0, Math.round(p.x)), sampleCanvas.width - 1);
+				const sy = Math.min(Math.max(0, Math.round(p.y)), sampleCanvas.height - 1);
+				const data = sampleCtx.getImageData(sx, sy, 1, 1).data;
+				const [rC, gC, bC, aC] = data;
+				if (aC > 40) {
+					accentColors.push(`rgba(${rC}, ${gC}, ${bC}, 0.8)`);
+				}
+			}
+			if (accentColors.length === 0) {
+				accentColors.push('rgba(255, 255, 255, 0.8)');
+			}
+
+			// Moderate number of pieces so motion is readable
+			const cols = 6;
+			const rows = 8;
+			const pieceWidth = render.width / cols;
+			const pieceHeight = render.height / rows;
+
+			const wrapperRect = imageWrapper.getBoundingClientRect();
+			const offsetLeft = render.left - wrapperRect.left;
+			const offsetTop = render.top - wrapperRect.top;
+
+			const pieces = [];
+			let longestPieceLife = 0;
+			for (let y = 0; y < rows; y++) {
+				for (let x = 0; x < cols; x++) {
+					const piece = document.createElement('div');
+					piece.className = 'shatter-piece';
+					piece.style.left = (offsetLeft + x * pieceWidth) + 'px';
+					piece.style.top = (offsetTop + y * pieceHeight) + 'px';
+					piece.style.width = pieceWidth + 'px';
+					piece.style.height = pieceHeight + 'px';
+					piece.style.backgroundImage = `url(${img.src})`;
+					piece.style.backgroundSize = render.width + 'px ' + render.height + 'px';
+					piece.style.backgroundPosition = `-${x * pieceWidth}px -${y * pieceHeight}px`;
+					imageWrapper.appendChild(piece);
+
+					// Slightly different speeds/delays for each tile so the fall feels lively
+					const speedJitter = 0.85 + Math.random() * 0.45; // 0.85x - 1.3x
+					const rowDelay = (y / rows) * 0.12 * baseDuration; // lower rows lag a bit
+					const randomDelay = Math.random() * 90;
+					const fallDuration = baseDuration * speedJitter;
+					const totalDelay = rowDelay + randomDelay;
+					longestPieceLife = Math.max(longestPieceLife, totalDelay + fallDuration);
+
+					// Outward blast component: push pieces away from center with some randomness
+					const centerOffset = (x + 0.5 - cols / 2);
+					const directionalPush = centerOffset * pieceWidth * (Math.random() * 0.45 + 0.75);
+					const randomPush = (Math.random() - 0.5) * pieceWidth * 0.8;
+					const xDrift = directionalPush + randomPush;
+
+					pieces.push({
+						el: piece,
+						col: x,
+						row: y,
+						colorIndex: (x + y) % accentColors.length,
+						delay: totalDelay,
+						fallDuration,
+						gravityScale: 0.9 + Math.random() * 0.35, // slight per-piece gravity variance
+						spinRate: (Math.random() * 14 - 7), // softer wobble
+						xDrift
+					});
+				}
+			}
+
+			img.style.opacity = '0';
+			clickLayer.style.pointerEvents = 'none';
+
+			const maxFall = render.height * 1.2; // fall past the bottom
+			const start = performance.now();
+
+			function animate(now) {
+				const elapsed = now - start;
+				let stillFalling = false;
+
+				pieces.forEach(piece => {
+					const timeAfterDelay = elapsed - piece.delay;
+					const local = Math.min(Math.max(timeAfterDelay / piece.fallDuration, 0), 1);
+					if (local < 1) {
+						stillFalling = true;
+					}
+					// Gravity-like ease: start slower, accelerate, then coast into fade
+					const gravityProgress = Math.min(local * piece.gravityScale, 1);
+					const eased = gravityProgress * gravityProgress; // quadratic acceleration
+					const fall = maxFall * eased;
+					const rotate = (piece.col - cols / 2) * 4 * eased + piece.spinRate * local;
+					const accent = accentColors[piece.colorIndex];
+					const driftX = piece.xDrift * eased;
+					piece.el.style.boxShadow = `0 ${6 + local * 16}px ${16 + local * 12}px ${accent}`;
+					piece.el.style.borderRadius = '6px';
+					piece.el.style.transform = `translate3d(${driftX}px, ${fall}px, 0) rotate(${rotate}deg)`;
+					// Fully visible until near end, then snap‑fade
+					const fadeStart = 0.8;
+					let alpha = 1;
+					if (local > fadeStart) {
+						alpha = 1 - ((local - fadeStart) / (1 - fadeStart));
+					}
+					piece.el.style.opacity = String(Math.max(0, alpha));
+				});
+
+				if (elapsed < longestPieceLife && stillFalling) {
+					requestAnimationFrame(animate);
+				} else {
+					pieces.forEach(p => p.el.remove());
+					img.style.opacity = '1';
+					clickLayer.style.pointerEvents = '';
+					currentLevelIndex = (currentLevelIndex + 1) % levelKeys.length;
+					saveProgress();
+					loadCurrentLevel();
+				}
+			}
+
+			requestAnimationFrame(animate);
+		}
+
+		function processInput(clientX, clientY, { allowMissFeedback = false, isTouch = false }) {
+			lastInteraction = performance.now();
+			if (!img.complete || !img.naturalWidth || !img.naturalHeight) return;
+
+			const wrapperRect = imageWrapper.getBoundingClientRect();
+			if (clientX < wrapperRect.left || clientX > wrapperRect.right || clientY < wrapperRect.top || clientY > wrapperRect.bottom) {
+				return;
+			}
+
+			const render = getRenderedImageBox();
+			if (clientX < render.left || clientX > render.left + render.width || clientY < render.top || clientY > render.top + render.height) {
+				return;
+			}
+
+			const xImage = ((clientX - render.left) / render.width) * img.naturalWidth;
+			const yImage = ((clientY - render.top) / render.height) * img.naturalHeight;
+			const xLocal = clientX - wrapperRect.left;
+			const yLocal = clientY - wrapperRect.top;
+			// Remember latest pointer positions so we can emit trails even when stationary
+			lastPointer.xScreen = xLocal;
+			lastPointer.yScreen = yLocal;
+			lastPointer.xImage = xImage;
+			lastPointer.yImage = yImage;
+
+			const levelKey = levelKeys[currentLevelIndex];
+			const bee = beeLocations[levelKey];
+
+			if (!bee) {
+				console.warn('No bee data for', levelKey);
+				showOverlay('No bee data', true);
+				if (allowMissFeedback) createTapCircle(xOnScreen, yOnScreen, false);
+				return;
+			}
+
+			if (isTransitioning) {
+				return;
+			}
+
+			const dx = xImage - bee.x;
+			const dy = yImage - bee.y;
+			const dist = Math.sqrt(dx * dx + dy * dy);
+			const isHit = dist <= BEE_RADIUS_PX;
+
+			const canResolve = (!isTouch && !mouseResolved) || (isTouch && !touchResolved);
+
+			if (isHit && canResolve) {
+				if (isTouch) touchResolved = true;
+				if (!isTouch) mouseResolved = true;
+				showOverlay('You found the bee!', false);
+				showFoundMarker(bee.x, bee.y);
+				showVignette();
+				// Brief pause after the marker so feedback is immediate, then run the celebration
+				setTimeout(() => {
+					// Floral fireworks from the bee location
+					playFloralFireworks(bee.x, bee.y);
+					// Begin the tile drop while petals are still flying for an overlapped celebration
+					setTimeout(() => {
+						playShatterToNextLevel();
+					}, 160);
+				}, 500);
+				return;
+			}
+
+			if (!isHit && allowMissFeedback) {
+				createTapCircle(xOnScreen, yOnScreen, false);
+				showOverlay('Try again!', true);
+				spawnGrassClippings(xOnScreen, yOnScreen, xImage, yImage);
+			}
+
+			if ((isTouch && !touchResolved) || (!isTouch && mouseDown && !mouseResolved)) {
+				spawnTouchTrail(xOnScreen, yOnScreen, xImage, yImage);
+			}
+		}
+
+		// Keep trails emitting even when the pointer is stationary while held
+		function pumpTrail() {
+			const now = performance.now();
+			if ((mouseDown && !mouseResolved) || (activeTouchId !== null && !touchResolved)) {
+				spawnTouchTrail(lastPointer.xScreen, lastPointer.yScreen, lastPointer.xImage, lastPointer.yImage);
+			}
+			maybeShowHint(now);
+			requestAnimationFrame(pumpTrail);
+		}
+
+		// Mouse support (click/drag)
+		function handleMouseDown(event) {
+			event.preventDefault();
+			mouseDown = true;
+			mouseResolved = false;
+			processInput(event.clientX, event.clientY, { allowMissFeedback: true, isTouch: false });
+		}
+
+		function handleMouseMove(event) {
+			if (!mouseDown) return;
+			event.preventDefault();
+			processInput(event.clientX, event.clientY, { allowMissFeedback: false, isTouch: false });
+		}
+
+		function handleMouseUp() {
+			mouseDown = false;
+			mouseResolved = false;
+		}
+
+		function handleMouseLeave() {
+			mouseDown = false;
+			mouseResolved = false;
+		}
+
+		// Touch support (tap/drag)
+		function handleTouchStart(event) {
+			event.preventDefault();
+			const touch = event.changedTouches[0];
+			activeTouchId = touch.identifier;
+			touchResolved = false;
+			processInput(touch.clientX, touch.clientY, { allowMissFeedback: true, isTouch: true });
+		}
+
+		function handleTouchMove(event) {
+			if (activeTouchId === null) return;
+			for (const touch of event.changedTouches) {
+				if (touch.identifier === activeTouchId) {
+					event.preventDefault();
+					processInput(touch.clientX, touch.clientY, { allowMissFeedback: false, isTouch: true });
+					break;
+				}
+			}
+		}
+
+		function handleTouchEnd(event) {
+			for (const touch of event.changedTouches) {
+				if (touch.identifier === activeTouchId) {
+					activeTouchId = null;
+					touchResolved = false;
+					break;
+				}
+			}
+		}
+
+		clickLayer.addEventListener('mousedown', handleMouseDown);
+		clickLayer.addEventListener('mousemove', handleMouseMove);
+		clickLayer.addEventListener('mouseup', handleMouseUp);
+		clickLayer.addEventListener('mouseleave', handleMouseLeave);
+		clickLayer.addEventListener('touchstart', handleTouchStart, { passive: false });
+		clickLayer.addEventListener('touchmove', handleTouchMove, { passive: false });
+		clickLayer.addEventListener('touchend', handleTouchEnd);
+		clickLayer.addEventListener('touchcancel', handleTouchEnd);
+
+		// Start continuous trail pumping loop
+		requestAnimationFrame(pumpTrail);
+	</script>
+</body>
+</html>
