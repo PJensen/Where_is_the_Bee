@@ -28,4 +28,4 @@ Arcade-style hidden-object microgame: tap where you think the bee is hiding, get
 Open `index.html` directly in a modern desktop or mobile browser. No dependencies or servers required.
 
 ## Dedication
-For Maeve, 11 months old — with love and wonder. 👶🐝
+For Maeve, 11 months old — with love and wonder. 👶🐝 :-)
